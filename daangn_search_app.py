@@ -150,7 +150,12 @@ def build_search_link(keyword: str, in_value: str) -> str:
 
 def build_search_links(keyword: str, region: str) -> list[str]:
     seeds = REGION_SEED_IN.get(region, [region])
-    return [build_search_link(keyword, seed) for seed in seeds]
+    urls: list[str] = []
+    for seed in seeds:
+        urls.append(build_search_link(keyword, seed))
+        params = urlencode({"in": seed, "search": keyword})
+        urls.append(f"https://www.daangn.com/kr/buy-sell/s/?{params}")
+    return urls
 
 
 def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str, str]:
@@ -371,7 +376,10 @@ class DaangnSearchApp:
         try:
             self.rows = fetch_region_items(keyword, region, limit=MAX_RESULTS)
         except Exception as exc:
-            messagebox.showerror("조회 실패", f"매물 조회 중 오류가 발생했습니다.\n{exc}")
+            detail = str(exc)
+            if "403" in detail:
+                detail += "\n\n현재 네트워크/보안 환경에서 당근 요청이 차단된 상태입니다. (브라우저에서는 보이지만 스크립트 요청은 차단될 수 있음)"
+            messagebox.showerror("조회 실패", f"매물 조회 중 오류가 발생했습니다.\n{detail}")
             self.status_var.set("조회 실패")
             return
 
@@ -447,7 +455,10 @@ def run_cli(keyword: str, city: str, limit: int) -> int:
     try:
         rows = fetch_region_items(keyword, city, limit=limit)
     except Exception as exc:
-        print(f"조회 실패: {exc}", file=sys.stderr)
+        detail = str(exc)
+        if "403" in detail:
+            detail += " | 원인: 현재 환경의 보안/프록시 차단(브라우저 수동 접속과 스크립트 요청이 다르게 처리될 수 있음)"
+        print(f"조회 실패: {detail}", file=sys.stderr)
         return 1
 
     for row in rows:
