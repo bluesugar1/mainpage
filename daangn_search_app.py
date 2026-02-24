@@ -18,7 +18,10 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 # 당근은 `in`에 광역시/도 이름보다 `동네-코드` 형식을 더 안정적으로 처리하는 경우가 있음
 REGION_SEED_IN = {
-    "서울": "서초4동-366",
+    "서울": [
+        "서초4동-366", "강남구", "송파구", "강동구", "마포구", "은평구", "중구", "영등포구",
+        "관악구", "동작구", "노원구", "강서구", "성북구", "광진구", "중랑구", "도봉구",
+    ],
 }
 
 
@@ -53,29 +56,46 @@ class ListingAnchorParser(HTMLParser):
             self.current_text = []
 
 
-def build_search_link(keyword: str, region: str) -> str:
-    in_value = REGION_SEED_IN.get(region, region)
+def build_search_link(keyword: str, in_value: str) -> str:
     params = urlencode({"in": in_value, "search": keyword})
     return f"{BASE_URL}?{params}"
 
 
+def build_search_links(keyword: str, region: str) -> list[str]:
+    seeds = REGION_SEED_IN.get(region, [region])
+    if isinstance(seeds, str):
+        seeds = [seeds]
+    links = []
+    for seed in seeds:
+        links.append(build_search_link(keyword, seed))
+    return links
+
+
 def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str]:
-    cleaned = html.unescape(text)
-    parts = [p.strip() for p in re.split(r"\s{2,}|\|", cleaned) if p.strip()]
-    title = parts[0] if parts else cleaned[:60]
-    price = ""
-    location = fallback_region
-    for part in parts[1:]:
-        if not price and ("원" in part or "나눔" in part):
-            price = part
-            continue
-        if location == fallback_region and len(part) <= 20:
-            location = part
+    cleaned = re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+    # 가격 패턴 우선 추출
+    price_match = re.search(r"(\d{1,3}(?:,\d{3})*원|나눔)", cleaned)
+    price = price_match.group(1) if price_match else ""
+
+    # 동네명 추출 (예: 서초4동, 신당동)
+    location_match = re.search(r"([가-힣0-9]+(?:동|읍|면))", cleaned)
+    location = location_match.group(1) if location_match else fallback_region
+
+    title = cleaned
+    if price_match:
+        title = cleaned[:price_match.start()].strip(" ·|-_") or cleaned
+
     return title, price, location
 
 
 
 
+
+
+def is_completed_listing_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text)
+    return any(word in normalized for word in ("판매완료", "거래완료", "예약중"))
 
 
 def is_listing_url(href: str) -> bool:
@@ -129,7 +149,7 @@ def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 12)
 def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, str]]:
     items = []
     seen = set()
-    urls = [build_search_link(keyword, region)]
+    urls = build_search_links(keyword, region)
 
     idx = 0
     while idx < len(urls):
@@ -145,6 +165,8 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
 
         for href, text in parser.anchors:
             if not is_listing_url(href):
+                continue
+            if is_completed_listing_text(text):
                 continue
             full_url = href if href.startswith("http") else f"https://www.daangn.com{href}"
             if full_url in seen:
