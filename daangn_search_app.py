@@ -19,8 +19,9 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 # 당근은 `in`에 광역시/도 이름보다 `동네-코드` 형식을 더 안정적으로 처리하는 경우가 있음
 REGION_SEED_IN = {
     "서울": [
-        "서초4동-366", "강남구", "송파구", "강동구", "마포구", "은평구", "중구", "영등포구",
-        "관악구", "동작구", "노원구", "강서구", "성북구", "광진구", "중랑구", "도봉구",
+        "역삼동", "천호동", "수유동", "화곡동", "신림동", "자양동", "구로동", "가산동",
+        "상계동", "창동", "장안동", "사당동", "합정동", "홍제동", "서초동", "성수동",
+        "길음동", "잠실동", "신정동", "여의도동", "이태원동", "불광동", "혜화동", "신당동", "면목동",
     ],
 }
 
@@ -146,6 +147,12 @@ def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 12)
             break
     return urls
 
+
+
+def per_url_pick_limit(total_limit: int) -> int:
+    """한 URL에서 결과를 과도하게 독식하지 않게 제한해 동네 다양성을 높인다."""
+    return max(2, min(6, total_limit // 12 if total_limit >= 12 else 2))
+
 def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, str]]:
     items = []
     seen = set()
@@ -163,7 +170,11 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
         parser = ListingAnchorParser()
         parser.feed(html_text)
 
+        picked_here = 0
+        cap = per_url_pick_limit(limit)
         for href, text in parser.anchors:
+            if picked_here >= cap:
+                break
             if not is_listing_url(href):
                 continue
             if is_completed_listing_text(text):
@@ -180,6 +191,7 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
                 "location": location,
                 "url": full_url,
             })
+            picked_here += 1
             if len(items) >= limit:
                 return items
 
