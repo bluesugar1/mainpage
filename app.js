@@ -1,103 +1,63 @@
-const regions = [
-  "서울",
-  "부산",
-  "대구",
-  "인천",
-  "광주",
-  "대전",
-  "울산",
-  "세종",
-  "경기",
-  "강원",
-  "충북",
-  "충남",
-  "전북",
-  "전남",
-  "경북",
-  "경남",
-  "제주",
-];
+const regions = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
 
-const regionRoot = document.getElementById("regions");
-const selectAll = document.getElementById("select-all");
+const cityEl = document.getElementById("city");
 const form = document.getElementById("search-form");
 const result = document.getElementById("result");
 
-function createRegionSelector() {
-  const html = regions
+cityEl.innerHTML = regions.map((r) => `<option value="${r}">${r}</option>`).join("");
+cityEl.value = "서울";
+
+function renderRows(items) {
+  if (!items.length) {
+    result.innerHTML = `<p class="hint">검색 결과가 0건입니다. 당근 측 차단(봇 방지) 또는 순간적인 페이지 구조 변경일 수 있어요.</p>`;
+    return;
+  }
+
+  const rows = items
     .map(
-      (region, index) => `
-      <label class="region-item">
-        <input type="checkbox" class="region" value="${region}" ${index >= 0 ? "checked" : ""} />
-        <span>${region}</span>
-      </label>
-    `,
+      (row) => `
+      <tr>
+        <td>${row.title || ""}</td>
+        <td>${row.price || ""}</td>
+        <td>${row.location || ""}</td>
+        <td><a href="${row.url}" target="_blank" rel="noopener noreferrer">열기</a></td>
+      </tr>`,
     )
     .join("");
 
-  regionRoot.innerHTML = html;
+  result.innerHTML = `
+    <p class="hint">총 ${items.length}건</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>제목</th><th>가격</th><th>지역</th><th>링크</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
-function getSelectedRegions() {
-  return [...document.querySelectorAll(".region:checked")].map((el) => el.value);
-}
-
-function buildSearchLink(keyword, region) {
-  const base = "https://www.daangn.com/kr/buy-sell/";
-  const params = new URLSearchParams({
-    in: region,
-    search: keyword,
-  });
-  return `${base}?${params.toString()}`;
-}
-
-form.addEventListener("submit", (event) => {
+form.addEventListener("submit", async (event) => {
   event.preventDefault();
-
   const keyword = document.getElementById("keyword").value.trim();
-  const selected = getSelectedRegions();
+  const city = cityEl.value;
 
   if (!keyword) {
     result.innerHTML = '<p class="hint">키워드를 입력해 주세요.</p>';
     return;
   }
 
-  if (!selected.length) {
-    result.innerHTML = '<p class="hint">최소 1개 이상의 지역을 선택해 주세요.</p>';
-    return;
+  result.innerHTML = '<p class="hint">매물 가져오는 중...</p>';
+
+  try {
+    const resp = await fetch(`/api/search?keyword=${encodeURIComponent(keyword)}&city=${encodeURIComponent(city)}&limit=80`);
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || "조회 실패");
+    }
+    renderRows(data.items || []);
+  } catch (err) {
+    result.innerHTML = `<p class="hint">실패: ${err.message}</p>`;
   }
-
-  const links = selected
-    .map((region) => {
-      const url = buildSearchLink(keyword, region);
-      return `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${region}에서 '${keyword}' 검색</a></li>`;
-    })
-    .join("");
-
-  result.innerHTML = `
-    <h2>'${keyword}' 검색 링크 (${selected.length}개 지역)</h2>
-    <ul>${links}</ul>
-    <div class="actions">
-      <button id="open-all" type="button">모든 링크 새 탭으로 열기</button>
-    </div>
-    <p class="hint">※ 당근 웹 정책/URL 형식 변경 시 일부 링크가 동작하지 않을 수 있습니다.</p>
-  `;
-
-  const openAll = document.getElementById("open-all");
-  openAll.addEventListener("click", () => {
-    selected.forEach((region) => {
-      const url = buildSearchLink(keyword, region);
-      window.open(url, "_blank", "noopener,noreferrer");
-    });
-  });
 });
 
-selectAll.addEventListener("change", (event) => {
-  const checked = event.target.checked;
-  document.querySelectorAll(".region").forEach((checkbox) => {
-    checkbox.checked = checked;
-  });
-});
-
-createRegionSelector();
-result.innerHTML = '<p class="hint">키워드를 넣고 버튼을 눌러 주세요.</p>';
+result.innerHTML = '<p class="hint">검색어를 넣고 매물 가져오기를 눌러 주세요.</p>';

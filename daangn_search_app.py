@@ -6,7 +6,7 @@ import tkinter as tk
 import webbrowser
 from html.parser import HTMLParser
 from tkinter import messagebox, ttk
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 REGIONS = [
@@ -29,7 +29,7 @@ class ListingAnchorParser(HTMLParser):
         if tag != "a":
             return
         href = dict(attrs).get("href", "")
-        if "/articles/" in href:
+        if "/articles/" in href or "/kr/buy-sell/" in href:
             self.in_target_anchor = True
             self.current_href = href
             self.current_text = []
@@ -68,32 +68,62 @@ def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str]:
     return title, price, location
 
 
-def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, str]]:
-    url = build_search_link(keyword, region)
-    req = Request(url, headers={"User-Agent": UA})
+
+
+def fetch_html(url: str) -> str:
+    req = Request(url, headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"})
     with urlopen(req, timeout=15) as resp:
-        html_text = resp.read().decode("utf-8", errors="ignore")
+        return resp.read().decode("utf-8", errors="ignore")
 
-    parser = ListingAnchorParser()
-    parser.feed(html_text)
 
+def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 12) -> list[str]:
+    links = re.findall(r'href=["\'](/kr/buy-sell/\?in=[^"\']+)["\']', html_text)
+    urls: list[str] = []
+    seen: set[str] = set()
+    for href in links:
+        href = html.unescape(href)
+        in_value = parse_qs(urlparse(href).query).get("in", [""])[0]
+        if not in_value:
+            continue
+        full = f"https://www.daangn.com/kr/buy-sell/?{urlencode({'in': in_value, 'search': keyword})}"
+        if full in seen:
+            continue
+        seen.add(full)
+        urls.append(full)
+        if len(urls) >= max_count:
+            break
+    return urls
+
+def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, str]]:
     items = []
     seen = set()
-    for href, text in parser.anchors:
-        full_url = href if href.startswith("http") else f"https://www.daangn.com{href}"
-        if full_url in seen:
-            continue
-        seen.add(full_url)
-        title, price, location = parse_anchor_text(text, region)
-        items.append({
-            "region": region,
-            "title": title,
-            "price": price,
-            "location": location,
-            "url": full_url,
-        })
-        if len(items) >= limit:
-            break
+    urls = [build_search_link(keyword, region)]
+
+    for url in list(urls):
+        html_text = fetch_html(url)
+        for nearby in extract_neighborhood_urls(html_text, keyword):
+            if nearby not in urls:
+                urls.append(nearby)
+
+        parser = ListingAnchorParser()
+        parser.feed(html_text)
+
+        for href, text in parser.anchors:
+            full_url = href if href.startswith("http") else f"https://www.daangn.com{href}"
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+            title, price, location = parse_anchor_text(text, region)
+            items.append({
+                "region": region,
+                "title": title,
+                "price": price,
+                "location": location,
+                "url": full_url,
+            })
+            if len(items) >= limit:
+                return items
+
     return items
 
 

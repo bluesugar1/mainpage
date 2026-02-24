@@ -121,3 +121,9 @@ python3 daangn_search_app.py --keyword 자전거 --city 서울 --limit 30
 ## 참고
 - 당근 공식 공개 API가 아니라 웹 페이지를 읽어 결과를 추출합니다.
 - 사이트 구조가 바뀌면 파싱 로직 업데이트가 필요할 수 있습니다.
+
+
+## 중요 (웹 버전)
+- 웹 버전은 `index.html`을 파일로 직접 열면 API가 없어 매물 조회가 안 됩니다.
+- 반드시 `launch_web_app.bat`(Windows) 또는 `python3 launch_web_app.py`로 실행하세요.
+- 이 실행기는 로컬 API(`/api/search`)를 같이 띄워서 도시 1개 선택만으로 인근 동네를 자동 확장 조회합니다.
