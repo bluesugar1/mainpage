@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>당근 통합 매물 검색기</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>🥕 당근 통합 매물 검색기</h1>
+      <p class="desc">도시 1개만 고르면 인근 동네까지 자동 확장해서 결과를 보여줍니다.</p>
+
+      <form id="search-form" class="search-form">
+        <input id="keyword" type="text" placeholder="예: 갤럭시" autocomplete="off" required />
+        <select id="city"></select>
+        <button type="submit">매물 가져오기</button>
+      </form>
+
+      <section id="result" class="result"></section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
