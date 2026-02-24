@@ -69,14 +69,24 @@ REGION_KEYWORDS = {
 }
 
 
-def region_matches_text(region: str, raw_text: str, location: str, url: str) -> bool:
-    # 서울 선택 시에는 인근 확장 특성상 필터를 느슨하게 유지
+def region_matches_text(region: str, raw_text: str, location: str, current_seed: str) -> bool:
+    # 서울은 인근 확장 특성상 필터를 느슨하게 유지
     if region == "서울":
         return True
 
-    combined = f"{raw_text} {location} {url}"
+    normalized_text = re.sub(r"\s+", " ", f"{raw_text} {location}")
     words = REGION_KEYWORDS.get(region, [region])
-    return any(word in combined for word in words)
+
+    # 1) 지역 키워드가 텍스트/지역에 명시된 경우만 통과
+    if any(word in normalized_text for word in words):
+        return True
+
+    # 2) 현재 검색 시드(예: 성남시/수원시)가 제목/지역에 포함되면 통과
+    seed_token = re.sub(r"-\d+$", "", current_seed)
+    if seed_token and seed_token in normalized_text:
+        return True
+
+    return False
 
 REGION_SEED_IN = {
     "서울": list(SEOUL_GU_DONG_SEEDS.values()),
@@ -149,7 +159,7 @@ def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str, s
     price_match = re.search(r"(\d{1,3}(?:,\d{3})*원|나눔)", cleaned)
     price = price_match.group(1) if price_match else ""
 
-    location_match = re.search(r"([가-힣0-9]+(?:동|읍|면))", cleaned)
+    location_match = re.search(r"([가-힣0-9]+(?:동|읍|면|리|구|군|시))", cleaned)
     location = location_match.group(1) if location_match else fallback_region
 
     date_match = re.search(r"(\d+\s*(?:초|분|시간|일|주|개월|년)\s*전|방금\s*전?)", cleaned)
@@ -217,6 +227,10 @@ def per_url_pick_limit(total_limit: int) -> int:
     return max(5, min(50, total_limit // 20 if total_limit >= 100 else 10))
 
 
+def unique_locations_count(rows: list[dict[str, str]]) -> int:
+    return len({r.get("location", "") for r in rows if r.get("location")})
+
+
 def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -238,6 +252,7 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
 
         picked_here = 0
         cap = per_url_pick_limit(limit)
+        current_seed = parse_qs(urlparse(url).query).get("in", [""])[0]
         for href, text in parser.anchors:
             if picked_here >= cap:
                 break
@@ -249,7 +264,7 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
                 continue
 
             title, price, location, uploaded_at = parse_anchor_text(text, region)
-            if not region_matches_text(region, text, location, full_url):
+            if not region_matches_text(region, text, location, current_seed):
                 continue
 
             seen.add(full_url)
@@ -363,8 +378,8 @@ class DaangnSearchApp:
         self.current_page = 1
         self.render_current_page()
         self.status_var.set(f"{region} 전체 권역에서 '{keyword}' 검색 결과 {len(self.rows)}건 (최대 {MAX_RESULTS}건)")
-        if region != '서울' and self.rows and all(r.get('location','').endswith('동') for r in self.rows[:10]):
-            self.status_var.set(self.status_var.get() + ' | 참고: 외부 사이트 응답 특성상 지역 필터가 엄격 적용됩니다.')
+        if region != '서울' and unique_locations_count(self.rows) < 3:
+            self.status_var.set(self.status_var.get() + ' | 경고: 지역 다양성이 낮습니다(사이트 응답 제한 가능).')
 
     def total_pages(self) -> int:
         if not self.rows:
