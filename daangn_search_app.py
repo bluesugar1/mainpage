@@ -16,6 +16,11 @@ REGIONS = [
 BASE_URL = "https://www.daangn.com/kr/buy-sell/"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
+# 당근은 `in`에 광역시/도 이름보다 `동네-코드` 형식을 더 안정적으로 처리하는 경우가 있음
+REGION_SEED_IN = {
+    "서울": "서초4동-366",
+}
+
 
 class ListingAnchorParser(HTMLParser):
     def __init__(self) -> None:
@@ -49,7 +54,8 @@ class ListingAnchorParser(HTMLParser):
 
 
 def build_search_link(keyword: str, region: str) -> str:
-    params = urlencode({"in": region, "search": keyword})
+    in_value = REGION_SEED_IN.get(region, region)
+    params = urlencode({"in": in_value, "search": keyword})
     return f"{BASE_URL}?{params}"
 
 
@@ -125,7 +131,10 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
     seen = set()
     urls = [build_search_link(keyword, region)]
 
-    for url in list(urls):
+    idx = 0
+    while idx < len(urls):
+        url = urls[idx]
+        idx += 1
         html_text = fetch_html(url)
         for nearby in extract_neighborhood_urls(html_text, keyword):
             if nearby not in urls:
