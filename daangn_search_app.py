@@ -164,8 +164,12 @@ def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str, s
     price_match = re.search(r"(\d{1,3}(?:,\d{3})*원|나눔)", cleaned)
     price = price_match.group(1) if price_match else ""
 
-    location_match = re.search(r"([가-힣0-9]+(?:동|읍|면|리|구|군|시))", cleaned)
-    location = location_match.group(1) if location_match else fallback_region
+    # '갤럭시' 같은 상품명이 지역으로 잘못 잡히는 문제 방지: 시(市) 단일 접미사는 제외
+    candidates = re.findall(r"([가-힣0-9]{2,}(?:동|읍|면|리|구|군))", cleaned)
+    location = fallback_region
+    if candidates:
+        # 보통 텍스트 후반에 지역이 위치하므로 뒤에서부터 채택
+        location = candidates[-1]
 
     date_match = re.search(r"(\d+\s*(?:초|분|시간|일|주|개월|년)\s*전|방금\s*전?)", cleaned)
     uploaded_at = re.sub(r"\s+", "", date_match.group(1)) if date_match else ""
