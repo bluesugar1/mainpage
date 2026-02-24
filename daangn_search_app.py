@@ -70,6 +70,32 @@ def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str]:
 
 
 
+
+
+def is_listing_url(href: str) -> bool:
+    """실제 매물 상세 링크만 허용하고, 필터/카테고리/동네전환 링크는 제외."""
+    if not href:
+        return False
+    full = href if href.startswith("http") else f"https://www.daangn.com{href}"
+    parsed = urlparse(full)
+    path = parsed.path
+
+    if "/articles/" in path:
+        return True
+
+    if not path.startswith("/kr/buy-sell/"):
+        return False
+
+    if path.startswith("/kr/buy-sell/s/"):
+        return False
+
+    # /kr/buy-sell/?in=... 같은 동네/필터 URL 제외
+    if path.rstrip("/") == "/kr/buy-sell" and parsed.query:
+        return False
+
+    # 상세글 슬러그 경로만 허용
+    return path.rstrip("/") != "/kr/buy-sell"
+
 def fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"})
     with urlopen(req, timeout=15) as resp:
@@ -109,6 +135,8 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
         parser.feed(html_text)
 
         for href, text in parser.anchors:
+            if not is_listing_url(href):
+                continue
             full_url = href if href.startswith("http") else f"https://www.daangn.com{href}"
             if full_url in seen:
                 continue
