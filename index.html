@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>당근 전국 검색기</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>🥕 당근 전국 검색기</h1>
+      <p class="desc">
+        키워드를 입력하면 주요 지역별 당근 검색 링크를 한 번에 만들어 줍니다.
+      </p>
+
+      <form id="search-form" class="search-form">
+        <input
+          id="keyword"
+          type="text"
+          placeholder="예: 자전거, 아이폰, 원룸"
+          autocomplete="off"
+          required
+        />
+        <button type="submit">전국 검색 링크 만들기</button>
+      </form>
+
+      <label class="toggle-row">
+        <input id="select-all" type="checkbox" checked />
+        <span>전체 지역 선택</span>
+      </label>
+
+      <section id="regions" class="regions"></section>
+
+      <section id="result" class="result"></section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
