@@ -15,17 +15,43 @@ REGIONS = [
 ]
 BASE_URL = "https://www.daangn.com/kr/buy-sell/"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+MAX_RESULTS = 1000
+PAGE_SIZE = 100
 
-# 당근은 `in`에 광역시/도 이름보다 `동네-코드` 형식을 더 안정적으로 처리하는 경우가 있음
+# 서울 25개 구 각각 최소 1개 동 시드
+SEOUL_GU_DONG_SEEDS = {
+    "강남구": "역삼동",
+    "강동구": "천호동",
+    "강북구": "수유동",
+    "강서구": "화곡동",
+    "관악구": "신림동",
+    "광진구": "자양동",
+    "구로구": "구로동",
+    "금천구": "가산동",
+    "노원구": "상계동",
+    "도봉구": "창동",
+    "동대문구": "장안동",
+    "동작구": "사당동",
+    "마포구": "합정동",
+    "서대문구": "홍제동",
+    "서초구": "서초동",
+    "성동구": "성수동",
+    "성북구": "길음동",
+    "송파구": "잠실동",
+    "양천구": "신정동",
+    "영등포구": "여의도동",
+    "용산구": "이태원동",
+    "은평구": "불광동",
+    "종로구": "혜화동",
+    "중구": "신당동",
+    "중랑구": "면목동",
+}
+
 REGION_SEED_IN = {
-    "서울": [
-        "역삼동", "천호동", "수유동", "화곡동", "신림동", "자양동", "구로동", "가산동",
-        "상계동", "창동", "장안동", "사당동", "합정동", "홍제동", "서초동", "성수동",
-        "길음동", "잠실동", "신정동", "여의도동", "이태원동", "불광동", "혜화동", "신당동", "면목동",
-    ],
+    "서울": list(SEOUL_GU_DONG_SEEDS.values()),
     "경기": [
         "성남시", "수원시", "고양시", "용인시", "부천시", "안양시", "화성시", "남양주시", "안산시", "평택시", "시흥시",
-        "파주시", "김포시", "의정부시", "하남시", "광명시", "군포시", "오산시", "이천시", "구리시",
+        "파주시", "김포시", "의정부시", "하남시", "광명시", "군포시", "오산시", "이천시", "구리시", "의왕시", "양주시",
     ],
     "인천": ["부평구", "남동구", "연수구", "미추홀구", "서구"],
     "부산": ["해운대구", "수영구", "부산진구", "동래구", "남구"],
@@ -83,34 +109,26 @@ def build_search_link(keyword: str, in_value: str) -> str:
 
 def build_search_links(keyword: str, region: str) -> list[str]:
     seeds = REGION_SEED_IN.get(region, [region])
-    if isinstance(seeds, str):
-        seeds = [seeds]
-    links = []
-    for seed in seeds:
-        links.append(build_search_link(keyword, seed))
-    return links
+    return [build_search_link(keyword, seed) for seed in seeds]
 
 
-def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str]:
+def parse_anchor_text(text: str, fallback_region: str) -> tuple[str, str, str, str]:
     cleaned = re.sub(r"\s+", " ", html.unescape(text)).strip()
 
-    # 가격 패턴 우선 추출
     price_match = re.search(r"(\d{1,3}(?:,\d{3})*원|나눔)", cleaned)
     price = price_match.group(1) if price_match else ""
 
-    # 동네명 추출 (예: 서초4동, 신당동)
     location_match = re.search(r"([가-힣0-9]+(?:동|읍|면))", cleaned)
     location = location_match.group(1) if location_match else fallback_region
+
+    date_match = re.search(r"(\d+\s*(?:초|분|시간|일|주|개월|년)\s*전|방금\s*전?)", cleaned)
+    uploaded_at = re.sub(r"\s+", "", date_match.group(1)) if date_match else ""
 
     title = cleaned
     if price_match:
         title = cleaned[:price_match.start()].strip(" ·|-_") or cleaned
 
-    return title, price, location
-
-
-
-
+    return title, price, location, uploaded_at
 
 
 def is_completed_listing_text(text: str) -> bool:
@@ -119,7 +137,6 @@ def is_completed_listing_text(text: str) -> bool:
 
 
 def is_listing_url(href: str) -> bool:
-    """실제 매물 상세 링크만 허용하고, 필터/카테고리/동네전환 링크는 제외."""
     if not href:
         return False
     full = href if href.startswith("http") else f"https://www.daangn.com{href}"
@@ -128,19 +145,14 @@ def is_listing_url(href: str) -> bool:
 
     if "/articles/" in path:
         return True
-
     if not path.startswith("/kr/buy-sell/"):
         return False
-
     if path.startswith("/kr/buy-sell/s/"):
         return False
-
-    # /kr/buy-sell/?in=... 같은 동네/필터 URL 제외
     if path.rstrip("/") == "/kr/buy-sell" and parsed.query:
         return False
-
-    # 상세글 슬러그 경로만 허용
     return path.rstrip("/") != "/kr/buy-sell"
+
 
 def fetch_html(url: str) -> str:
     req = Request(url, headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"})
@@ -148,13 +160,12 @@ def fetch_html(url: str) -> str:
         return resp.read().decode("utf-8", errors="ignore")
 
 
-def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 12) -> list[str]:
+def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 20) -> list[str]:
     links = re.findall(r'href=["\'](/kr/buy-sell/\?in=[^"\']+)["\']', html_text)
     urls: list[str] = []
     seen: set[str] = set()
     for href in links:
-        href = html.unescape(href)
-        in_value = parse_qs(urlparse(href).query).get("in", [""])[0]
+        in_value = parse_qs(urlparse(html.unescape(href)).query).get("in", [""])[0]
         if not in_value:
             continue
         full = f"https://www.daangn.com/kr/buy-sell/?{urlencode({'in': in_value, 'search': keyword})}"
@@ -167,19 +178,17 @@ def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 12)
     return urls
 
 
-
 def should_expand_nearby(region: str) -> bool:
-    # 인근 동네 자동확장은 서울에서만 사용(타 지역은 교차 유입 방지)
     return region == "서울"
 
 
 def per_url_pick_limit(total_limit: int) -> int:
-    """한 URL에서 결과를 과도하게 독식하지 않게 제한해 동네 다양성을 높인다."""
-    return max(2, min(6, total_limit // 12 if total_limit >= 12 else 2))
+    return max(5, min(50, total_limit // 20 if total_limit >= 100 else 10))
+
 
 def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, str]]:
-    items = []
-    seen = set()
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
     urls = build_search_links(keyword, region)
 
     idx = 0
@@ -187,6 +196,7 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
         url = urls[idx]
         idx += 1
         html_text = fetch_html(url)
+
         if should_expand_nearby(region):
             for nearby in extract_neighborhood_urls(html_text, keyword):
                 if nearby not in urls:
@@ -200,22 +210,25 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
         for href, text in parser.anchors:
             if picked_here >= cap:
                 break
-            if not is_listing_url(href):
+            if not is_listing_url(href) or is_completed_listing_text(text):
                 continue
-            if is_completed_listing_text(text):
-                continue
+
             full_url = href if href.startswith("http") else f"https://www.daangn.com{href}"
             if full_url in seen:
                 continue
             seen.add(full_url)
-            title, price, location = parse_anchor_text(text, region)
-            items.append({
-                "region": region,
-                "title": title,
-                "price": price,
-                "location": location,
-                "url": full_url,
-            })
+
+            title, price, location, uploaded_at = parse_anchor_text(text, region)
+            items.append(
+                {
+                    "region": region,
+                    "title": title,
+                    "price": price,
+                    "location": location,
+                    "uploaded_at": uploaded_at,
+                    "url": full_url,
+                }
+            )
             picked_here += 1
             if len(items) >= limit:
                 return items
@@ -227,12 +240,16 @@ class DaangnSearchApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("당근 통합 매물 검색기")
-        self.root.geometry("980x640")
+        self.root.geometry("1100x700")
 
         self.keyword_var = tk.StringVar()
         self.city_var = tk.StringVar(value="서울")
         self.status_var = tk.StringVar(value="검색어를 입력하고 [매물 가져오기]를 누르세요.")
+        self.page_var = tk.StringVar(value="페이지 0 / 0")
+
         self.rows: list[dict[str, str]] = []
+        self.current_page = 1
+        self.page_size = PAGE_SIZE
 
         self._build_ui()
 
@@ -260,18 +277,26 @@ class DaangnSearchApp:
 
         ttk.Button(top, text="매물 가져오기", command=self.search_items).pack(side="left", padx=(8, 0))
 
-        ttk.Label(frame, textvariable=self.status_var).pack(anchor="w", pady=(8, 6))
+        ttk.Label(frame, textvariable=self.status_var).pack(anchor="w", pady=(8, 4))
 
-        cols = ("title", "price", "location", "url")
-        self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=20)
+        pager = ttk.Frame(frame)
+        pager.pack(fill="x", pady=(0, 6))
+        ttk.Button(pager, text="◀ 이전", command=self.prev_page).pack(side="left")
+        ttk.Label(pager, textvariable=self.page_var).pack(side="left", padx=8)
+        ttk.Button(pager, text="다음 ▶", command=self.next_page).pack(side="left")
+
+        cols = ("title", "price", "location", "uploaded_at", "url")
+        self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=22)
         self.tree.heading("title", text="제목")
         self.tree.heading("price", text="가격")
         self.tree.heading("location", text="지역")
+        self.tree.heading("uploaded_at", text="올린날짜")
         self.tree.heading("url", text="링크")
-        self.tree.column("title", width=300)
-        self.tree.column("price", width=120)
-        self.tree.column("location", width=120)
-        self.tree.column("url", width=420)
+        self.tree.column("title", width=340)
+        self.tree.column("price", width=110)
+        self.tree.column("location", width=110)
+        self.tree.column("uploaded_at", width=110)
+        self.tree.column("url", width=430)
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<Double-1>", self.open_selected)
 
@@ -295,32 +320,65 @@ class DaangnSearchApp:
         self.root.update_idletasks()
 
         try:
-            self.rows = fetch_region_items(keyword, region, limit=80)
+            self.rows = fetch_region_items(keyword, region, limit=MAX_RESULTS)
         except Exception as exc:
             messagebox.showerror("조회 실패", f"매물 조회 중 오류가 발생했습니다.\n{exc}")
             self.status_var.set("조회 실패")
             return
 
+        self.current_page = 1
+        self.render_current_page()
+        self.status_var.set(f"{region} 전체 권역에서 '{keyword}' 검색 결과 {len(self.rows)}건 (최대 {MAX_RESULTS}건)")
+
+    def total_pages(self) -> int:
+        if not self.rows:
+            return 0
+        return (len(self.rows) + self.page_size - 1) // self.page_size
+
+    def render_current_page(self) -> None:
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
-        for row in self.rows:
-            self.tree.insert("", "end", values=(row["title"], row["price"], row["location"], row["url"]))
+        pages = self.total_pages()
+        if pages == 0:
+            self.page_var.set("페이지 0 / 0")
+            return
 
-        self.status_var.set(f"{region} 전체 권역에서 '{keyword}' 검색 결과 {len(self.rows)}건")
+        self.current_page = max(1, min(self.current_page, pages))
+        start = (self.current_page - 1) * self.page_size
+        end = start + self.page_size
+        for row in self.rows[start:end]:
+            self.tree.insert(
+                "",
+                "end",
+                values=(row["title"], row["price"], row["location"], row.get("uploaded_at", ""), row["url"]),
+            )
+        self.page_var.set(f"페이지 {self.current_page} / {pages}")
+
+    def next_page(self) -> None:
+        if self.current_page < self.total_pages():
+            self.current_page += 1
+            self.render_current_page()
+
+    def prev_page(self) -> None:
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.render_current_page()
 
     def open_selected(self, _event=None) -> None:
         selected = self.tree.selection()
         if not selected:
             return
         values = self.tree.item(selected[0], "values")
-        if len(values) >= 4:
-            webbrowser.open_new_tab(values[3])
+        if len(values) >= 5:
+            webbrowser.open_new_tab(values[4])
 
     def copy_rows(self) -> None:
         if not self.rows:
             return
-        text = "\n".join([f"{r['title']} | {r['price']} | {r['location']} | {r['url']}" for r in self.rows])
+        text = "\n".join(
+            [f"{r['title']} | {r['price']} | {r['location']} | {r.get('uploaded_at','')} | {r['url']}" for r in self.rows]
+        )
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
         self.root.update()
@@ -342,7 +400,7 @@ def run_cli(keyword: str, city: str, limit: int) -> int:
         return 1
 
     for row in rows:
-        print(f"{row['title']} | {row['price']} | {row['location']} | {row['url']}")
+        print(f"{row['title']} | {row['price']} | {row['location']} | {row.get('uploaded_at','')} | {row['url']}")
     return 0
 
 
@@ -350,11 +408,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="당근 통합 매물 검색기")
     parser.add_argument("--keyword", help="검색 키워드")
     parser.add_argument("--city", default="서울", help="도시명(예: 서울)")
-    parser.add_argument("--limit", type=int, default=30, help="최대 출력 건수")
+    parser.add_argument("--limit", type=int, default=MAX_RESULTS, help="최대 출력 건수")
     args = parser.parse_args()
 
     if args.keyword:
-        return run_cli(args.keyword, args.city.strip(), args.limit)
+        return run_cli(args.keyword, args.city.strip(), max(1, min(args.limit, MAX_RESULTS)))
 
     root = tk.Tk()
     app = DaangnSearchApp(root)

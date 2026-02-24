@@ -42,11 +42,11 @@ class AppHandler(SimpleHTTPRequestHandler):
             query = parse_qs(parsed.query)
             keyword = query.get("keyword", [""])[0].strip()
             city = query.get("city", ["서울"])[0].strip()
-            limit_raw = query.get("limit", ["80"])[0]
+            limit_raw = query.get("limit", ["1000"])[0]
             try:
-                limit = max(1, min(200, int(limit_raw)))
+                limit = max(1, min(1000, int(limit_raw)))
             except ValueError:
-                limit = 80
+                limit = 1000
 
             if not keyword:
                 self._send_json({"ok": False, "error": "검색어를 입력해 주세요."}, status=HTTPStatus.BAD_REQUEST)
