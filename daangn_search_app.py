@@ -23,6 +23,25 @@ REGION_SEED_IN = {
         "상계동", "창동", "장안동", "사당동", "합정동", "홍제동", "서초동", "성수동",
         "길음동", "잠실동", "신정동", "여의도동", "이태원동", "불광동", "혜화동", "신당동", "면목동",
     ],
+    "경기": [
+        "성남시", "수원시", "고양시", "용인시", "부천시", "안양시", "화성시", "남양주시", "안산시", "평택시", "시흥시",
+        "파주시", "김포시", "의정부시", "하남시", "광명시", "군포시", "오산시", "이천시", "구리시",
+    ],
+    "인천": ["부평구", "남동구", "연수구", "미추홀구", "서구"],
+    "부산": ["해운대구", "수영구", "부산진구", "동래구", "남구"],
+    "대구": ["수성구", "달서구", "중구", "북구"],
+    "광주": ["광산구", "서구", "북구", "동구"],
+    "대전": ["유성구", "서구", "중구"],
+    "울산": ["남구", "중구", "북구"],
+    "세종": ["세종시"],
+    "강원": ["원주시", "춘천시", "강릉시"],
+    "충북": ["청주시", "충주시", "제천시"],
+    "충남": ["천안시", "아산시", "공주시"],
+    "전북": ["전주시", "익산시", "군산시"],
+    "전남": ["순천시", "여수시", "목포시"],
+    "경북": ["포항시", "구미시", "경산시"],
+    "경남": ["창원시", "김해시", "진주시"],
+    "제주": ["제주시", "서귀포시"],
 }
 
 
@@ -149,6 +168,11 @@ def extract_neighborhood_urls(html_text: str, keyword: str, max_count: int = 12)
 
 
 
+def should_expand_nearby(region: str) -> bool:
+    # 인근 동네 자동확장은 서울에서만 사용(타 지역은 교차 유입 방지)
+    return region == "서울"
+
+
 def per_url_pick_limit(total_limit: int) -> int:
     """한 URL에서 결과를 과도하게 독식하지 않게 제한해 동네 다양성을 높인다."""
     return max(2, min(6, total_limit // 12 if total_limit >= 12 else 2))
@@ -163,9 +187,10 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
         url = urls[idx]
         idx += 1
         html_text = fetch_html(url)
-        for nearby in extract_neighborhood_urls(html_text, keyword):
-            if nearby not in urls:
-                urls.append(nearby)
+        if should_expand_nearby(region):
+            for nearby in extract_neighborhood_urls(html_text, keyword):
+                if nearby not in urls:
+                    urls.append(nearby)
 
         parser = ListingAnchorParser()
         parser.feed(html_text)
