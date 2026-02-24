@@ -47,6 +47,37 @@ SEOUL_GU_DONG_SEEDS = {
     "중랑구": "면목동",
 }
 
+
+REGION_KEYWORDS = {
+    "서울": ["서울", "강남", "강동", "강북", "강서", "관악", "광진", "구로", "금천", "노원", "도봉", "동대문", "동작", "마포", "서대문", "서초", "성동", "성북", "송파", "양천", "영등포", "용산", "은평", "종로", "중구", "중랑", "신당동", "약수동"],
+    "경기": ["경기", "성남", "수원", "고양", "용인", "부천", "안양", "화성", "남양주", "안산", "평택", "시흥", "파주", "김포", "의정부", "하남", "광명", "군포", "오산", "이천", "구리", "의왕", "양주", "분당", "판교", "영통", "망포", "광교", "동탄", "배곧", "정왕"],
+    "인천": ["인천", "부평", "남동", "연수", "미추홀", "서구", "송도"],
+    "부산": ["부산", "해운대", "수영", "부산진", "동래", "남구"],
+    "대구": ["대구", "수성", "달서", "중구", "북구"],
+    "광주": ["광주", "광산", "서구", "북구", "동구"],
+    "대전": ["대전", "유성", "서구", "중구"],
+    "울산": ["울산", "남구", "중구", "북구"],
+    "세종": ["세종"],
+    "강원": ["강원", "원주", "춘천", "강릉"],
+    "충북": ["충북", "청주", "충주", "제천"],
+    "충남": ["충남", "천안", "아산", "공주"],
+    "전북": ["전북", "전주", "익산", "군산"],
+    "전남": ["전남", "순천", "여수", "목포"],
+    "경북": ["경북", "포항", "구미", "경산"],
+    "경남": ["경남", "창원", "김해", "진주"],
+    "제주": ["제주", "서귀포"],
+}
+
+
+def region_matches_text(region: str, raw_text: str, location: str, url: str) -> bool:
+    # 서울 선택 시에는 인근 확장 특성상 필터를 느슨하게 유지
+    if region == "서울":
+        return True
+
+    combined = f"{raw_text} {location} {url}"
+    words = REGION_KEYWORDS.get(region, [region])
+    return any(word in combined for word in words)
+
 REGION_SEED_IN = {
     "서울": list(SEOUL_GU_DONG_SEEDS.values()),
     "경기": [
@@ -216,9 +247,12 @@ def fetch_region_items(keyword: str, region: str, limit: int) -> list[dict[str, 
             full_url = href if href.startswith("http") else f"https://www.daangn.com{href}"
             if full_url in seen:
                 continue
-            seen.add(full_url)
 
             title, price, location, uploaded_at = parse_anchor_text(text, region)
+            if not region_matches_text(region, text, location, full_url):
+                continue
+
+            seen.add(full_url)
             items.append(
                 {
                     "region": region,
@@ -329,6 +363,8 @@ class DaangnSearchApp:
         self.current_page = 1
         self.render_current_page()
         self.status_var.set(f"{region} 전체 권역에서 '{keyword}' 검색 결과 {len(self.rows)}건 (최대 {MAX_RESULTS}건)")
+        if region != '서울' and self.rows and all(r.get('location','').endswith('동') for r in self.rows[:10]):
+            self.status_var.set(self.status_var.get() + ' | 참고: 외부 사이트 응답 특성상 지역 필터가 엄격 적용됩니다.')
 
     def total_pages(self) -> int:
         if not self.rows:
